@@ -24,8 +24,8 @@ df_clean = df.withColumn("text", regexp_replace("value", "[^a-zA-Z0-9\s]", "")) 
 df_clean = df_clean.withColumn("text", lower(col("text"))) #lowercase
 df_clean = df_clean.filter(col('text').contains('biden') | col('text').contains('trump')) #filter for trump/biden
 # df_clean.show()
-# df_size = df_clean.count()
-# print("DataFrame size:", df_size)
+df_size = df_clean.count()
+print("DataFrame size:", df_size)
 
 #FEATURE EXTRACTION
 from pyspark.ml.feature import Tokenizer, StopWordsRemover
@@ -39,4 +39,4 @@ df_features.show()
 
 ### missing, find +/-100 tokens around trumps / biden
 
-df.write.parquet("test_cleaning.parquet")
+df_features.write.mode("overwrite").parquet("test_cleaning.parquet")
