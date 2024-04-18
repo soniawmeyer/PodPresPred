@@ -1,16 +1,24 @@
+import os
+import sys
 
+# os.environ['PYSPARK_PYTHON'] = sys.executable
+# os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
+# print(os.environ['PYSPARK_PYTHON'])
+# print(os.environ['PYSPARK_DRIVER_PYTHON'])
+
+# exit()
 
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("PodPres").getOrCreate()
-df_features = spark.read.parquet("test_cleaning.parquet")
 
+#LOAD DATA
+df_features = spark.read.parquet("test_cleaning.parquet")
+# df_features = df_features.limit(3) #remove later
 
 #RANDOM LABELS
 from pyspark.sql.functions import rand
 df_features = df_features.withColumn("label", (rand() * 2).cast("int"))
 df_features.show()
-
-
 
 #SENTIMENT ANALYSIS
 # Example using a simple lexicon approach
@@ -70,8 +78,9 @@ df_features.show()
 # # Show the result
 # df_embedded.select("filtered", "embeddings").show(truncate=False)
 
+# df_embedded.show()
 
-# # Define a UDF to extract the embedding vectors
+# # # Define a UDF to extract the embedding vectors
 # extract_vectors_udf = udf(lambda embeddings: embeddings.toArray().tolist(), ArrayType(FloatType()))
 
 # # Apply the UDF to extract the embedding vectors
@@ -81,18 +90,20 @@ df_features.show()
 # df_features_with_embeddings = df_features.join(df_with_embeddings.select("filtered", "embeddings_list"), on="filtered")
 
 # # Show the result
-# df_features_with_embeddings.show(truncate=False)
+# # df_features_with_embeddings.show()
+# column_names = df_features_with_embeddings.columns
+# print(column_names)
 
 
 
 
-# from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import VectorAssembler
 
 # Assuming you have already extracted word tokens, sentiment scores, and topic features
 # Let's say you have columns named "word_tokens", "sentiment_score", and "topic_features"
 
 # Define the list of input columns to be assembled
-input_columns = ["filtered", "sentiment_score", ] #"topic_features"
+input_columns = ["sentiment_score", ] #"topic_features" "embeddings_list", 
 
 # Create the VectorAssembler instance
 vector_assembler = VectorAssembler(inputCols=input_columns, outputCol="features")
@@ -104,4 +115,4 @@ assembled_df = vector_assembler.transform(df_features)
 assembled_df.select("features", "label").show(truncate=False)
 
 
-df_features.write.mode("overwrite").parquet("test_features.parquet")
+assembled_df.write.mode("overwrite").parquet("test_features.parquet")

@@ -26,6 +26,7 @@ pipeline = Pipeline(stages=[hashingTF, idf, lr])
 
 
 
+
 # #PREDICTIONS
 # # Assume df_new is your new data
 # predictions = model.transform(df_new)
@@ -38,3 +39,5 @@ pipeline = Pipeline(stages=[hashingTF, idf, lr])
 
 # evaluator = BinaryClassificationEvaluator()
 # print("Test Area Under ROC: " + str(evaluator.evaluate(predictions, {evaluator.metricName: "areaUnderROC"})))
+
+# model.save("test_model")
