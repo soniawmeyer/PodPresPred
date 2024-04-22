@@ -1,27 +1,23 @@
-import os
-import sys
-
-# os.environ['PYSPARK_PYTHON'] = sys.executable
-# os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
-# print(os.environ['PYSPARK_PYTHON'])
-# print(os.environ['PYSPARK_DRIVER_PYTHON'])
-
-# exit()
-
+#INITIALIZE SPARK SESSION
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("PodPres").getOrCreate()
 
 #LOAD DATA
 df_features = spark.read.parquet("test_cleaning.parquet")
+df_features = df_features.select('file_name', 'filtered')
 # df_features = df_features.limit(3) #remove later
+
+# Show the updated DataFrame
+# df_features.show()
+# column_names = df_features.columns
+# print(column_names)
+# exit()
 
 #RANDOM LABELS
 from pyspark.sql.functions import rand
 df_features = df_features.withColumn("label", (rand() * 2).cast("int"))
-df_features.show()
 
 #SENTIMENT ANALYSIS
-# Example using a simple lexicon approach
 afinn = spark.read.csv("lexicons/Afinn.csv", header=True, inferSchema=True).rdd.collectAsMap()
 broadcasted_lexicon = spark.sparkContext.broadcast(afinn)
 
@@ -34,85 +30,147 @@ def sentiment_score(words):
 
 sentiment_udf = udf(sentiment_score, IntegerType())
 df_features = df_features.withColumn("sentiment_score", sentiment_udf(df_features["filtered"]))
-df_features.show()
-
-
-# # # TOPIC MODELING
-# # from pyspark.ml.feature import RegexTokenizer, StopWordsRemover, CountVectorizer
-
-# # vectorizer = CountVectorizer(inputCol="filtered", outputCol="features")
-# # model = vectorizer.fit(filtered_data)
-# # vectorized_data = model.transform(filtered_data)
-# # from pyspark.ml.clustering import LDA
-
-# # lda = LDA(k=5, maxIter=10)  # k is the number of topics
-# # model = lda.fit(vectorized_data)
-
-# # # Show results
-# # topics = model.describeTopics(maxTermsPerTopic=10)
-# # topics.show(truncate=False)
-
-# # transformed = model.transform(vectorized_data)
-# # transformed.show(truncate=False)
-# # vocab = model.vocabulary
-# # for index, topic in enumerate(topics.collect()):
-# #     print(f"Topic {index}:")
-# #     for word, weight in zip(topic.termIndices, topic.termWeights):
-# #         print(f"{vocab[word]} {weight}")
 
 
 
-# #WORD2VEC
-# from pyspark.ml.feature import Word2Vec
-# from pyspark.sql import SparkSession
-# from pyspark.sql.types import ArrayType, FloatType
+# TOPIC MODELING
+from pyspark.ml.feature import CountVectorizer
+cv = CountVectorizer(inputCol="filtered", outputCol="features", vocabSize=100, minDF=3.0)
+cv_model = cv.fit(df_features)
+vectorized_data = cv_model.transform(df_features)
 
-# # Train Word2Vec model
-# word2Vec = Word2Vec(vectorSize=100, minCount=0, inputCol="filtered", outputCol="embeddings")
-# model = word2Vec.fit(df_features)
-# # 847-53
+# Train LDA model
+from pyspark.ml.clustering import LDA
+lda = LDA(k=5, maxIter=10)
+model = lda.fit(vectorized_data)
 
-# # Embed tokens
-# df_embedded = model.transform(df_features)
+# Show topics
+topics = model.describeTopics(maxTermsPerTopic=5)
+topics.show(truncate=False)
+
+# Transform original data
+transformed = model.transform(vectorized_data)
+transformed.show(truncate=False)
+
+# Use the vocabulary from CountVectorizerModel
+vocab = cv_model.vocabulary
+
+from pyspark.sql.functions import udf
+from pyspark.sql.types import ArrayType, StringType
+
+# Define a UDF to convert feature indices back to words
+def indices_to_words(vec):
+    return [vocab[i] for i in vec.indices]
+
+indices_to_words_udf = udf(indices_to_words, ArrayType(StringType()))
+
+# Apply UDF to the feature column to create a new 'used_words' column
+df_features_with_used_words = vectorized_data.withColumn("used_words", indices_to_words_udf("features"))
+
+
+
+#WORD2VEC ON FILTERED TOKENS
+from pyspark.ml.feature import Word2Vec
+from pyspark.sql import SparkSession
+from pyspark.sql.types import ArrayType, FloatType
+
+# Train Word2Vec model
+word2Vec = Word2Vec(vectorSize=100, minCount=0, inputCol="filtered", outputCol="embeddings")
+model = word2Vec.fit(df_features)
+
+# Embed tokens
+df_embedded = model.transform(df_features)
+
+# Show the result
+df_embedded.select("filtered", "embeddings").show(truncate=False)
+
+df_embedded.show()
+
+# # Define a UDF to extract the embedding vectors
+extract_vectors_udf = udf(lambda embeddings: embeddings.toArray().tolist(), ArrayType(FloatType()))
+
+# Apply the UDF to extract the embedding vectors
+df_with_embeddings = df_embedded.withColumn("embeddings_list", extract_vectors_udf("embeddings"))
+
+# Add the embedded vectors as a new column to the original DataFrame
+df_features_with_embeddings = df_features_with_used_words.join(df_with_embeddings.select("filtered", "embeddings_list"), on="filtered")
+
+#CONVERT EMBEDDING LIST TO DENSE VECTOR
+from pyspark.sql.functions import udf
+from pyspark.ml.linalg import Vectors, VectorUDT
+
+# Define a UDF to convert array<float> to DenseVector
+array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
+
+# Apply the UDF to create the DenseVector column
+df_features_with_embeddings = df_features_with_embeddings.withColumn("embeddings_vector", array_to_vector_udf(df_features_with_embeddings["embeddings_list"]))
+
+
+
+
+
+
+
+#W2V ON TOPIC MODEL
+word2Vec = Word2Vec(vectorSize=100, minCount=0, inputCol="used_words", outputCol="embeddings_tm")
+model = word2Vec.fit(df_features_with_embeddings)
+
+# Embed tokens
+df_embedded = model.transform(df_features_with_embeddings)
+
+# Show the result
+df_embedded.select("used_words", "embeddings_tm").show(truncate=False)
+
+df_embedded.show()
+
+# # Define a UDF to extract the embedding vectors
+extract_vectors_udf = udf(lambda embeddings: embeddings.toArray().tolist(), ArrayType(FloatType()))
+
+# Apply the UDF to extract the embedding vectors
+df_with_embeddings = df_embedded.withColumn("embeddings_list_tm", extract_vectors_udf("embeddings_tm"))
+
+# Add the embedded vectors as a new column to the original DataFrame
+df_features_with_embeddings = df_features_with_embeddings.join(df_with_embeddings.select("used_words", "embeddings_list_tm"), on="used_words")
+
+#CONVERT EMBEDDING LIST TO DENSE VECTOR
+from pyspark.sql.functions import udf
+from pyspark.ml.linalg import Vectors, VectorUDT
+
+# Define a UDF to convert array<float> to DenseVector
+array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
+
+# Apply the UDF to create the DenseVector column
+df_features_with_embeddings = df_features_with_embeddings.withColumn("embeddings_vector_tm", array_to_vector_udf(df_features_with_embeddings["embeddings_list_tm"]))
 
 # # Show the result
-# df_embedded.select("filtered", "embeddings").show(truncate=False)
-
-# df_embedded.show()
-
-# # # Define a UDF to extract the embedding vectors
-# extract_vectors_udf = udf(lambda embeddings: embeddings.toArray().tolist(), ArrayType(FloatType()))
-
-# # Apply the UDF to extract the embedding vectors
-# df_with_embeddings = df_embedded.withColumn("embeddings_list", extract_vectors_udf("embeddings"))
-
-# # Add the embedded vectors as a new column to the original DataFrame
-# df_features_with_embeddings = df_features.join(df_with_embeddings.select("filtered", "embeddings_list"), on="filtered")
-
-# # Show the result
-# # df_features_with_embeddings.show()
-# column_names = df_features_with_embeddings.columns
-# print(column_names)
+df_features_with_embeddings.show()
+column_names = df_features_with_embeddings.columns
+print(column_names)
 
 
 
 
+
+#VECTOR ASSEMBLY
 from pyspark.ml.feature import VectorAssembler
 
-# Assuming you have already extracted word tokens, sentiment scores, and topic features
-# Let's say you have columns named "word_tokens", "sentiment_score", and "topic_features"
-
-# Define the list of input columns to be assembled
-input_columns = ["sentiment_score", ] #"topic_features" "embeddings_list", 
+# ['filtered', 'file_name', 'label', 'sentiment_score', 'features', 'used_words', 'embeddings_list']
+input_columns = ["sentiment_score", "embeddings_vector",'embeddings_vector_tm']
 
 # Create the VectorAssembler instance
-vector_assembler = VectorAssembler(inputCols=input_columns, outputCol="features")
+vector_assembler = VectorAssembler(inputCols=input_columns, outputCol="final_features")
 
 # Apply the VectorAssembler to your DataFrame
-assembled_df = vector_assembler.transform(df_features)
-
-# Show the DataFrame with the assembled features
-assembled_df.select("features", "label").show(truncate=False)
+assembled_df = vector_assembler.transform(df_features_with_embeddings)
 
 
-assembled_df.write.mode("overwrite").parquet("test_features.parquet")
+# assembled_df = assembled_df.select('features', 'used_words', 'embeddings_list_tm','embeddings_vector_tm')
+# assembled_df = assembled_df.select('embeddings_list', 'embeddings_vector')
+
+
+assembled_df = assembled_df.select('file_name', 'final_features', 'label')
+assembled_df = assembled_df.withColumnRenamed("final_features", "features")
+assembled_df.show()
+
+assembled_df.write.mode("overwrite").parquet("/data/test_features.parquet")
+spark.stop()
