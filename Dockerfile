@@ -2,7 +2,7 @@
 FROM python:3.8-slim-buster
 
 # Set the working directory in the container
-WORKDIR /usr/src/app
+WORKDIR /data/
 
 # Install Java (required for PySpark)
 RUN apt-get update && \
@@ -17,3 +17,4 @@ COPY . .
 
 # Run PySpark script when the container launches
 CMD ["spark-submit", "feature_extraction.py"]
+# CMD ["spark-submit", "data_cleaning_final_step.py"]

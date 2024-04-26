@@ -3,15 +3,16 @@ from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("PodPres").getOrCreate()
 
 #LOAD DATA
-df_features = spark.read.parquet("test_cleaning.parquet")
-df_features = df_features.select('file_name', 'filtered')
+df_features = spark.read.parquet("final_cleaned.parquet") #['podcast_name_cleaned', 'segment_id', 'segment', 'trump_mention', 'biden_mention']
+# df_features = df_features.select('file_name', 'segment')
 # df_features = df_features.limit(3) #remove later
 
 # Show the updated DataFrame
 # df_features.show()
 # column_names = df_features.columns
 # print(column_names)
-# exit()
+# row_count = df_features.count()
+# print(f"The number of rows in the final DataFrame is: {row_count}")
 
 #RANDOM LABELS
 from pyspark.sql.functions import rand
@@ -29,13 +30,13 @@ def sentiment_score(words):
     return score
 
 sentiment_udf = udf(sentiment_score, IntegerType())
-df_features = df_features.withColumn("sentiment_score", sentiment_udf(df_features["filtered"]))
+df_features = df_features.withColumn("sentiment_score", sentiment_udf(df_features["segment"]))
 
 
 
 # TOPIC MODELING
 from pyspark.ml.feature import CountVectorizer
-cv = CountVectorizer(inputCol="filtered", outputCol="features", vocabSize=100, minDF=3.0)
+cv = CountVectorizer(inputCol="segment", outputCol="features", vocabSize=100, minDF=3.0)
 cv_model = cv.fit(df_features)
 vectorized_data = cv_model.transform(df_features)
 
@@ -69,20 +70,20 @@ df_features_with_used_words = vectorized_data.withColumn("used_words", indices_t
 
 
 
-#WORD2VEC ON FILTERED TOKENS
+#WORD2VEC ON segment TOKENS
 from pyspark.ml.feature import Word2Vec
 from pyspark.sql import SparkSession
 from pyspark.sql.types import ArrayType, FloatType
 
 # Train Word2Vec model
-word2Vec = Word2Vec(vectorSize=100, minCount=0, inputCol="filtered", outputCol="embeddings")
+word2Vec = Word2Vec(vectorSize=100, minCount=0, inputCol="segment", outputCol="embeddings")
 model = word2Vec.fit(df_features)
 
 # Embed tokens
 df_embedded = model.transform(df_features)
 
 # Show the result
-df_embedded.select("filtered", "embeddings").show(truncate=False)
+df_embedded.select("segment", "embeddings").show(truncate=False)
 
 df_embedded.show()
 
@@ -93,7 +94,7 @@ extract_vectors_udf = udf(lambda embeddings: embeddings.toArray().tolist(), Arra
 df_with_embeddings = df_embedded.withColumn("embeddings_list", extract_vectors_udf("embeddings"))
 
 # Add the embedded vectors as a new column to the original DataFrame
-df_features_with_embeddings = df_features_with_used_words.join(df_with_embeddings.select("filtered", "embeddings_list"), on="filtered")
+df_features_with_embeddings = df_features_with_used_words.join(df_with_embeddings.select("segment", "embeddings_list"), on="segment")
 
 #CONVERT EMBEDDING LIST TO DENSE VECTOR
 from pyspark.sql.functions import udf
@@ -154,7 +155,7 @@ print(column_names)
 #VECTOR ASSEMBLY
 from pyspark.ml.feature import VectorAssembler
 
-# ['filtered', 'file_name', 'label', 'sentiment_score', 'features', 'used_words', 'embeddings_list']
+# ['segment', 'file_name', 'label', 'sentiment_score', 'features', 'used_words', 'embeddings_list']
 input_columns = ["sentiment_score", "embeddings_vector",'embeddings_vector_tm']
 
 # Create the VectorAssembler instance
@@ -168,9 +169,9 @@ assembled_df = vector_assembler.transform(df_features_with_embeddings)
 # assembled_df = assembled_df.select('embeddings_list', 'embeddings_vector')
 
 
-assembled_df = assembled_df.select('file_name', 'final_features', 'label')
+assembled_df = assembled_df.select('podcast_name_cleaned', 'trump_mention','biden_mention','final_features', 'label')
 assembled_df = assembled_df.withColumnRenamed("final_features", "features")
 assembled_df.show()
 
-assembled_df.write.mode("overwrite").parquet("/data/test_features.parquet")
+assembled_df.write.mode("overwrite").parquet("final_features.parquet")
 spark.stop()
