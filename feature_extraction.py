@@ -2,8 +2,10 @@
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("PodPres").getOrCreate()
 
+
+
 #LOAD DATA
-df_features = spark.read.parquet("final_cleaned.parquet") #['podcast_name_cleaned', 'segment_id', 'segment', 'trump_mention', 'biden_mention']
+df_features = spark.read.parquet("/data/data/final_cleaned.parquet") #['podcast_name_cleaned', 'segment_id', 'segment', 'trump_mention', 'biden_mention']
 # df_features = df_features.select('file_name', 'segment')
 # df_features = df_features.limit(3) #remove later
 
@@ -175,3 +177,7 @@ assembled_df.show()
 
 assembled_df.write.mode("overwrite").parquet("final_features.parquet")
 spark.stop()
+
+
+
+
