@@ -19,4 +19,6 @@ COPY . .
 # CMD ["spark-submit", "feature_extraction.py"]
 # CMD ["spark-submit", "data_cleaning_final_step.py"]
 # CMD ["spark-submit", "parquet_to_csv.py"]
-CMD ["spark-submit", "add_labels.py"]
+# CMD ["spark-submit", "add_labels.py"]
+# CMD ["spark-submit", "model training.ipynb"]
+CMD ["spark-submit", "model_training.py"]
