@@ -21,4 +21,4 @@ COPY . .
 # CMD ["spark-submit", "parquet_to_csv.py"]
 # CMD ["spark-submit", "add_labels.py"]
 # CMD ["spark-submit", "model training.ipynb"]
-CMD ["spark-submit", "model_training.py"]
+CMD ["spark-submit", "model_training_lr_cont.py"]
